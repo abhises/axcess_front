@@ -50,7 +50,7 @@ const CheckoutWidget = ({
       form.className = "paymentWidgets";
       form.setAttribute("data-lang", "en");
       form.setAttribute("data-brands", "VISA MASTER");
-      form.action = "/payments/axcess/callback";
+      form.action = `${API_BASE_URL}/payments/axcess/callback`;
 
       container.appendChild(script);
       container.appendChild(form);

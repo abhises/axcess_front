@@ -35,15 +35,18 @@ const TokenizationForm = ({ amount = 9.99, currency = "USD" }) => {
       if (!tRes.ok) throw new Error("Tokenization failed");
       const token = await tRes.json();
 
-      const pRes = await fetch("/api/payments/axcess/token/charge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          registrationId: token.registrationId,
-          amount,
-          currency,
-        }),
-      });
+      const pRes = await fetch(
+        `${API_BASE_URL}/api/payments/axcess/token/charge`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            registrationId: token.registrationId,
+            amount,
+            currency,
+          }),
+        }
+      );
       const payment = await pRes.json();
 
       setOutput(JSON.stringify({ token, payment }, null, 2));
