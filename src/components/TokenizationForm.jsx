@@ -15,26 +15,35 @@ const TokenizationForm = ({ amount = 9.99, currency = "USD" }) => {
       cvv: form.get("cvv")?.trim(),
     };
 
+    const customer = {
+      email: form.get("email")?.trim(),
+    };
+
+    // Validate inputs
     if (
       !card.number ||
       !card.holder ||
       !card.expiryMonth ||
       !card.expiryYear ||
-      !card.cvv
+      !card.cvv ||
+      !customer.email
     ) {
       setOutput("Please fill all fields");
       return;
     }
 
     try {
+      // 1️⃣ Create registration token
       const tRes = await fetch(`${API_BASE_URL}/api/payments/axcess/tokens`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ card }),
+        body: JSON.stringify({ card, customer }),
       });
+
       if (!tRes.ok) throw new Error("Tokenization failed");
       const token = await tRes.json();
 
+      // 2️⃣ Charge using the token
       const pRes = await fetch(
         `${API_BASE_URL}/api/payments/axcess/token/charge`,
         {
@@ -47,6 +56,7 @@ const TokenizationForm = ({ amount = 9.99, currency = "USD" }) => {
           }),
         }
       );
+
       const payment = await pRes.json();
 
       setOutput(JSON.stringify({ token, payment }, null, 2));
@@ -62,10 +72,10 @@ const TokenizationForm = ({ amount = 9.99, currency = "USD" }) => {
       <input name="expMonth" placeholder="MM" required />
       <input name="expYear" placeholder="YYYY" required />
       <input name="cvv" placeholder="CVV" required />
+      <input name="email" placeholder="Email" required />
       <button type="submit">Save Card</button>
       <pre>{output}</pre>
     </form>
   );
 };
-
 export default TokenizationForm;
