@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>OPP / Axcess — One-Click Demo (Constants + Auto-Render)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0b0f14; --card:#121820; --fg:#e7edf5; --muted:#8aa0b8; --accent:#3ab5ff; --ok:#22c55e; --err:#ff6166; --mono: ui-monospace,SFMono-Regular,Consolas,Menlo,monospace; }
+    html,body { height:100%; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; }
+    .wrap { max-width:820px; margin:36px auto; padding:0 16px; }
+    h1 { margin:0 0 10px; font-size:20px; }
+    .card { background:var(--card); border-radius:12px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
+    .row { display:flex; gap:10px; align-items:center; }
+    button { padding:10px 14px; border-radius:10px; border:1px solid #2a3d56; background:#122033; color:var(--fg); font-weight:700; cursor:pointer; }
+    button[disabled] { opacity:.6; cursor:not-allowed; }
+    .log { font-family:var(--mono); background:#0a1017; border:1px solid #1a2a3d; border-radius:10px; padding:12px; min-height:120px; white-space:pre-wrap; overflow:auto; margin-top:12px; }
+    .muted { color:var(--muted); }
+    .ok { color:var(--ok); }
+    .err { color:var(--err); }
+    .widgetShell { margin-top:16px; border:1px dashed #2b3f59; border-radius:12px; padding:14px; min-height:140px; display:flex; align-items:center; justify-content:center; color:#9fb2c9; }
+    .pill { display:inline-block; border:1px solid #2b3f59; border-radius:999px; padding:3px 8px; font:12px var(--mono); color:#cfe3ff; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>One-Click Checkout (TEST) → Auto-Render Widget</h1>
+    <p class="muted">
+      Uses constants for keys & dummy payment data. Click <strong>“Start Flow”</strong> → shows <em>Waiting…</em> → creates checkout session →
+      auto-injects and renders the <span class="pill">paymentWidgets</span> form when the <span class="pill">checkoutId</span> returns.
+    </p>
+
+    <div class="card">
+      <div class="row">
+        <button id="startBtn">Start Flow</button>
+        <button id="resetBtn" type="button">Reset</button>
+        <span id="stateMsg" class="muted" aria-live="polite"></span>
+      </div>
+
+      <div id="widgetContainer" class="widgetShell">
+        Widget will appear here after checkout is created.
+      </div>
+
+      <div id="log" class="log" aria-live="polite">Ready.</div>
+    </div>
+  </div>
+
+  <script>
+    /* ============================================================
+     * CONSTANTS — replace with your real test/prod values
+     * IMPORTANT: Never expose real Bearer in production frontend.
+     * ============================================================ */
+    // Endpoint base (TEST):
+    const ENDPOINT_BASE = 'https://eu-test.oppwa.com'; // e.g. 'https://eu-prod.oppwa.com' for prod
+
+    // Credentials:
+    const ENTITY_ID     = '8ac7a4c793ae8faa0193afe46836029d'; // Example test entityId
+    const BEARER_TOKEN  = 'OGFjN2E0Yzc5M2FlOGZhYTAxOTNhZmUzZjEwYzAyOTl8P05nSzVwPzllPz10eFRNZVd3V0hgf0'; // <— dummy string
+
+    // Dummy payment details:
+    const AMOUNT       = '9.99';
+    const CURRENCY     = 'AUD';
+    const PAYMENT_TYPE = 'DB';              // 'DB' (debit/purchase) or 'PA' (pre-auth)
+    const BRANDS       = 'VISA MASTER AMEX';
+
+    // Optional: extra form-urlencoded params appended to checkout request
+    const EXTRA_PARAMS = {
+      'customer.email': 'test@example.com',
+      'merchantTransactionId': 'demo_' + Math.random().toString(36).slice(2, 10)
+    };
+
+    // Result action (your backend endpoint to receive result POST). For demo only:
+    const FORM_ACTION_RESULT_URL = '/process-payment-result'; // placeholder
+
+    /* ============================================================
+     * UTILITIES — minimalist helpers with presence checks
+     * ============================================================ */
+    const $ = (sel) => document.querySelector(sel);
+    const logEl = $('#log');
+    const widgetContainer = $('#widgetContainer');
+    const startBtn = $('#startBtn');
+    const resetBtn = $('#resetBtn');
+    const stateMsg = $('#stateMsg');
+
+    function appendLog(msg, cls) {
+      if (!logEl) return;
+      const time = new Date().toISOString();
+      logEl.textContent += `\n[${time}] ${msg}`;
+      if (cls) logEl.classList.toggle(cls, true);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setState(msg) {
+      if (!stateMsg) return;
+      stateMsg.textContent = msg || '';
+    }
+
+    function setWaiting(isWaiting) {
+      if (startBtn) startBtn.disabled = !!isWaiting;
+      setState(isWaiting ? 'Waiting… creating checkout session' : '');
+    }
+
+    function clearWidget() {
+      if (!widgetContainer) return;
+      widgetContainer.innerHTML = 'Widget will appear here after checkout is created.';
+      // Remove any previously injected widget script
+      const old = document.getElementById('opp-widget-script');
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
+
+    // Build x-www-form-urlencoded body safely
+    function buildFormBody(paramsObj) {
+      const sp = new URLSearchParams();
+      // Always include required keys
+      sp.set('entityId', ENTITY_ID);
+      sp.set('amount', AMOUNT);
+      sp.set('currency', CURRENCY);
+      sp.set('paymentType', PAYMENT_TYPE);
+      // Append optional params
+      if (paramsObj && typeof paramsObj === 'object') {
+        for (const [k, v] of Object.entries(paramsObj)) {
+          // Validate existence before set
+          (typeof k === 'string' || typeof k === 'number') ? sp.set(String(k), String(v)) : null;
+        }
+      }
+      return sp.toString();
+    }
+
+    // Inject the widget form and load paymentWidgets.js with the checkoutId
+    function renderWidget(checkoutId) {
+      if (!widgetContainer) return appendLog('Missing widget container', 'err');
+
+      // 1) Insert the widget form into DOM
+      widgetContainer.innerHTML = `
+        <form action="${FORM_ACTION_RESULT_URL}" class="paymentWidgets" data-brands="${BRANDS}"></form>
+      `;
+
+      // 2) Load the widget script (it auto-mounts onto the form above)
+      const script = document.createElement('script');
+      script.id = 'opp-widget-script';
+      script.src = `${ENDPOINT_BASE}/v1/paymentWidgets.js?checkoutId=${encodeURIComponent(checkoutId)}`;
+      script.async = true;
+      script.onload = () => appendLog('paymentWidgets.js loaded — widget should be visible.', 'ok');
+      script.onerror = () => appendLog('Failed to load paymentWidgets.js.', 'err');
+
+      // Validate presence of <head> before appending
+      (document.head ? document.head.appendChild(script) : document.documentElement.appendChild(script));
+    }
+
+    // Create checkout session → returns checkoutId
+    async function createCheckout() {
+      const url = `${ENDPOINT_BASE}/v1/checkouts`;
+      const body = buildFormBody(EXTRA_PARAMS);
+
+      appendLog(`POST ${url}`);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${BEARER_TOKEN}`,
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body
+        });
+
+        const text = await res.text(); // log raw for transparency
+        appendLog(`Response (${res.status}): ${text}`);
+
+        // Try to parse JSON safely
+        let json;
+        try { json = JSON.parse(text); } catch (_e) { /* non-JSON or HTML */ }
+
+        // Extract id (checkoutId)
+        const checkoutId = json && json.id ? json.id : null;
+        if (!checkoutId) throw new Error('No checkoutId (id) returned in response JSON.');
+
+        return checkoutId;
+      } catch (err) {
+        appendLog(`Create checkout failed: ${err.message}`, 'err');
+        throw err;
+      }
+    }
+
+    /* ============================================================
+     * FLOW — one click: waiting → create checkout → render widget
+     * ============================================================ */
+    async function startFlow() {
+      clearWidget();
+      setWaiting(true);
+      appendLog('Starting one-click flow…');
+
+      try {
+        const checkoutId = await createCheckout();
+        appendLog(`Checkout created. id=${checkoutId}`, 'ok');
+
+        // Auto-render widget
+        renderWidget(checkoutId);
+        setState('Widget ready.');
+      } catch (_e) {
+        setState('Error — check the log.');
+      } finally {
+        setWaiting(false);
+      }
+    }
+
+    /* ============================================================
+     * EVENTS — validate the presence of elements first
+     * ============================================================ */
+    startBtn ? startBtn.addEventListener('click', startFlow) : appendLog('Missing #startBtn', 'err');
+    resetBtn ? resetBtn.addEventListener('click', clearWidget) : appendLog('Missing #resetBtn', 'err');
+
+    // Initial log
+    appendLog('Ready. Click “Start Flow”.');
+  </script>
+</body>
+</html>

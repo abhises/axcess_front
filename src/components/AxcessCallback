@@ -1,0 +1,40 @@
+// src/pages/AxcessCallback.jsx
+import { useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
+
+export default function AxcessCallback() {
+  const [searchParams] = useSearchParams();
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+  useEffect(() => {
+    const sendPaymentResult = async () => {
+      const id = searchParams.get("id");
+      const resourcePath = searchParams.get("resourcePath");
+
+      if (!id || !resourcePath) {
+        console.error("Missing params in callback");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/payments/axcess/callback`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id,
+            resourcePath,
+          }),
+        });
+        console.log("Payment verified ✅", res);
+      } catch (err) {
+        console.error("Error posting payment result ❌", err);
+      }
+    };
+
+    sendPaymentResult();
+  }, [searchParams]);
+
+  return;
+}
